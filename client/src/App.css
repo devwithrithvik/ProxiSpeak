@@ -1,0 +1,165 @@
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  color: #f8fafc;
+  background: #071321;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100%;
+  width: 100%;
+}
+
+body {
+  min-height: 100vh;
+  background: #071321;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #071321;
+  overflow-x: hidden;
+}
+
+/* The image already contains the original header and sidebar. */
+.office-stage {
+  position: relative;
+  width: min(100%, 1536px);
+  margin: 0 auto;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  isolation: isolate;
+  background: #101e2b;
+}
+
+.office-background {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Transparent layer for live players. */
+.player-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.player {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  transform: translate(-50%, -50%);
+  transition: left 100ms linear, top 100ms linear;
+  white-space: nowrap;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: 0 3px 12px #0008;
+}
+
+.my-avatar {
+  background: #2563eb;
+  outline: 2px solid #93c5fd;
+}
+
+.other-avatar {
+  background: #e11d48;
+}
+
+.player-name {
+  padding: 3px 8px;
+  border: 1px solid #ffffff20;
+  border-radius: 6px;
+  background: #101e2bee;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px #0004;
+}
+
+/* Connection information stays below the reference image. */
+.app-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 12px 24px;
+  width: 100%;
+  padding: 14px 16px;
+  color: #cbd5e1;
+  background: #0b1928;
+  border-top: 1px solid #263749;
+  font-size: 13px;
+}
+
+.connection-online {
+  color: #34d399;
+}
+
+.connection-offline {
+  color: #fca5a5;
+}
+
+@media (max-width: 600px) {
+  .app {
+    justify-content: flex-start;
+  }
+
+  .office-stage {
+    width: 100%;
+  }
+
+  .avatar {
+    width: 26px;
+    height: 26px;
+    font-size: 10px;
+  }
+
+  .player-name {
+    padding: 2px 5px;
+    font-size: 9px;
+  }
+
+  .app-footer {
+    gap: 8px 14px;
+    padding: 10px;
+    font-size: 11px;
+  }
+}
