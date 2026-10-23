@@ -3,6 +3,8 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
+require("dotenv").config();
+const mongoose = require("mongoose");
 
 const app = express();
 const server = http.createServer(app);
@@ -74,7 +76,16 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
+
+mongoose
+  .connect(process.env.MONGODB_URI)
+  .then(() => {
+    console.log("MongoDB Atlas connected successfully!");
+  })
+  .catch((error) => {
+    console.error("MongoDB connection failed:", error.message);
+  });
 
 server.listen(PORT, () => {
   console.log(`ProxiSpeak server running on http://localhost:${PORT}`);
