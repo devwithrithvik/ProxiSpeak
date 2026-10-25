@@ -4,88 +4,122 @@ import { io } from "socket.io-client";
 import "../App.css";
 import officeFloor from "../assets/office-floor.png";
 
-// Connect to the backend only when the Virtual Office is mounted.
+// Connect only while the Virtual Office is mounted.
 const socket = io("http://localhost:5000", {
   autoConnect: false,
 });
 
 function VirtualOffice({ user, onNavigate, onLogout }) {
-  const [players, setPlayers] = useState([]);
-  const [myId, setMyId] = useState("");
+  const [employees, setEmployees] = useState([]);
+  const [myEmployeeId, setMyEmployeeId] = useState("");
   const [connected, setConnected] = useState(false);
+  const [nearbyEmployees, setNearbyEmployees] = useState([]);
+  const [voiceRange, setVoiceRange] = useState(120);
 
+  // Connect with the actual logged-in user's identity.
   useEffect(() => {
     function handleConnect() {
-      setMyId(socket.id);
+      setMyEmployeeId(socket.id);
       setConnected(true);
     }
 
     function handleDisconnect() {
       setConnected(false);
+      setNearbyEmployees([]);
     }
 
-    function handlePlayersUpdate(updatedPlayers) {
-      setPlayers(updatedPlayers);
+    function handleEmployeesUpdate(updatedEmployees) {
+      setEmployees(updatedEmployees);
+    }
+
+    function handleProximityUpdate(data) {
+      setNearbyEmployees(data.nearbyEmployees || []);
+
+      if (Number.isFinite(data.voiceRange)) {
+        setVoiceRange(data.voiceRange);
+      }
     }
 
     socket.on("connect", handleConnect);
     socket.on("disconnect", handleDisconnect);
-    socket.on("playersUpdate", handlePlayersUpdate);
+    socket.on("employeesUpdate", handleEmployeesUpdate);
+    socket.on("proximityUpdate", handleProximityUpdate);
+
+    // The backend expects userId and name directly inside socket.auth.
+    socket.auth = {
+      userId:
+        user?.username ||
+        user?.userId ||
+        user?.id ||
+        user?.name ||
+        "guest",
+      name: user?.name || user?.username || "Guest",
+    };
 
     socket.connect();
-
-    if (socket.connected) {
-      handleConnect();
-    }
 
     return () => {
       socket.off("connect", handleConnect);
       socket.off("disconnect", handleDisconnect);
-      socket.off("playersUpdate", handlePlayersUpdate);
+      socket.off("employeesUpdate", handleEmployeesUpdate);
+      socket.off("proximityUpdate", handleProximityUpdate);
+
       socket.disconnect();
     };
-  }, []);
+  }, [user?.name, user?.username, user?.userId, user?.id]);
 
+  // Keyboard movement for the currently logged-in employee.
   useEffect(() => {
     function handleKeyDown(event) {
       const key = event.key.toLowerCase();
 
       const allowedKeys = [
-        "w", "a", "s", "d",
-        "arrowup", "arrowdown",
-        "arrowleft", "arrowright",
+        "w",
+        "a",
+        "s",
+        "d",
+        "arrowup",
+        "arrowdown",
+        "arrowleft",
+        "arrowright",
       ];
 
       if (!allowedKeys.includes(key)) return;
 
-      // Don't interfere with typing in input fields.
+      // Don't move the avatar while typing into a form field.
       if (
         event.target instanceof HTMLElement &&
-        ["INPUT", "TEXTAREA"].includes(event.target.tagName)
+        (["INPUT", "TEXTAREA"].includes(event.target.tagName) ||
+          event.target.isContentEditable)
       ) {
         return;
       }
 
-      event.preventDefault();
+      // Don't interfere with browser shortcuts such as Ctrl+R.
+      if (event.ctrlKey || event.altKey || event.metaKey) return;
 
-      const currentPlayer = players.find(
-        (player) => player.id === myId
+      const currentEmployee = employees.find(
+        (employee) => employee.socketId === myEmployeeId
       );
 
-      if (!currentPlayer) return;
+      if (!currentEmployee || !socket.connected) return;
+
+      event.preventDefault();
 
       const speed = 12;
-      let { x, y } = currentPlayer;
+      let { x, y } = currentEmployee;
 
       if (key === "w" || key === "arrowup") y -= speed;
       if (key === "s" || key === "arrowdown") y += speed;
       if (key === "a" || key === "arrowleft") x -= speed;
       if (key === "d" || key === "arrowright") x += speed;
 
+      // Keep the avatar inside the 800 x 500 virtual office.
       x = Math.max(20, Math.min(780, x));
       y = Math.max(20, Math.min(480, y));
 
-      socket.emit("playerMove", { x, y });
+      // This event name matches the current backend.
+      socket.emit("employeeMove", { x, y });
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -93,15 +127,16 @@ function VirtualOffice({ user, onNavigate, onLogout }) {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [players, myId]);
+  }, [employees, myEmployeeId]);
 
   return (
     <main className="app">
-        <Header
-            user={user}
-            onNavigate={onNavigate}
-            onLogout={onLogout}
-        />
+      <Header
+        user={user}
+        onNavigate={onNavigate}
+        onLogout={onLogout}
+      />
+
       <section className="office-stage">
         <img
           className="office-background"
@@ -110,33 +145,45 @@ function VirtualOffice({ user, onNavigate, onLogout }) {
           draggable="false"
         />
 
-        {/* Live multiplayer avatars appear over the office image. */}
+        {/* Live employee avatars. */}
         <div className="player-layer">
-          {players.map((player) => (
-            <div
-              key={player.id}
-              className="player"
-              style={{
-                left: `${9.2 + (player.x / 800) * 81}%`,
-                top: `${6.5 + (player.y / 500) * 86}%`,
-              }}
-            >
-              <div
-                className={`avatar ${
-                  player.id === myId ? "my-avatar" : "other-avatar"
-                }`}
-              >
-                {player.name.replace("Player ", "").slice(0, 2)}
-              </div>
+          {employees.map((employee) => {
+            const isMe = employee.socketId === myEmployeeId;
 
-              <span className="player-name">
-                {player.id === myId ? "You" : player.name}
-              </span>
-            </div>
-          ))}
+            const initials = (employee.name || "Guest")
+              .split(" ")
+              .map((part) => part[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase();
+
+            return (
+              <div
+                key={employee.socketId || employee.userId}
+                className="player"
+                style={{
+                  left: `${9.2 + (employee.x / 800) * 81}%`,
+                  top: `${6.5 + (employee.y / 500) * 86}%`,
+                }}
+              >
+                <div
+                  className={`avatar ${
+                    isMe ? "my-avatar" : "other-avatar"
+                  }`}
+                >
+                  {initials}
+                </div>
+
+                <span className="player-name">
+                  {isMe ? "You" : employee.name}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </section>
 
+      {/* Connection, employee count and proximity status. */}
       <footer className="app-footer">
         <span
           className={
@@ -146,7 +193,22 @@ function VirtualOffice({ user, onNavigate, onLogout }) {
           ● {connected ? "Connected" : "Connecting..."}
         </span>
 
-        <span>Players online: {players.length}</span>
+        <span>Employees online: {employees.length}</span>
+
+        <span>Nearby: {nearbyEmployees.length}</span>
+
+        <span>
+          {nearbyEmployees.length > 0
+            ? nearbyEmployees
+                .map(
+                  (employee) =>
+                    `${employee.name} (${employee.distance}px)`
+                )
+                .join(", ")
+            : "No nearby employees"}
+        </span>
+
+        <span>Voice range: {voiceRange}px</span>
 
         <span>Move: W A S D or arrow keys</span>
       </footer>
