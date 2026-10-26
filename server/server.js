@@ -78,7 +78,6 @@ app.get("/", (req, res) => {
 
 // ==========================================
 // DEMO DATA FOR DATABASE TESTING ONLY
-// This endpoint does NOT control live positions.
 // ==========================================
 
 app.post("/api/spatial-audit/demo-data", async (req, res) => {
@@ -106,8 +105,6 @@ app.post("/api/spatial-audit/demo-data", async (req, res) => {
       },
     ];
 
-    // Replace only these four demo records.
-    // Preserve other database records.
     await UserLocation.deleteMany({
       userId: {
         $in: demoEmployees.map((employee) => employee.userId),
@@ -141,8 +138,6 @@ app.post("/api/spatial-audit/demo-data", async (req, res) => {
 
 // ==========================================
 // SPATIAL AUDIT — LIVE POSITIONS
-// Uses the existing in-memory Socket.IO map.
-// Does not query MongoDB for employee positions.
 // ==========================================
 
 app.get("/api/spatial-audit", (req, res) => {
@@ -174,7 +169,6 @@ app.get("/api/spatial-audit", (req, res) => {
       });
     }
 
-    // Snapshot the actual positions of currently connected sessions.
     const queryStart = performance.now();
 
     const liveEmployees = Array.from(employees.values()).map(
@@ -191,7 +185,6 @@ app.get("/api/spatial-audit", (req, res) => {
       (performance.now() - queryStart).toFixed(3)
     );
 
-    // Find connected employees within the requested radius.
     const nearbyEmployees = liveEmployees
       .map((employee) => {
         const exactDistance = distanceInPixels(
@@ -211,15 +204,11 @@ app.get("/api/spatial-audit", (req, res) => {
       .sort((a, b) => a.exactDistance - b.exactDistance)
       .map(({ exactDistance, ...employee }) => employee);
 
-    // Build connected clusters using a 100-pixel threshold.
-    // Transitive grouping is supported.
     const clusters = [];
     const assigned = new Set();
 
     for (let i = 0; i < nearbyEmployees.length; i++) {
-      if (assigned.has(i)) {
-        continue;
-      }
+      if (assigned.has(i)) continue;
 
       const cluster = [];
       const queue = [i];
@@ -233,9 +222,7 @@ app.get("/api/spatial-audit", (req, res) => {
         cluster.push(currentEmployee);
 
         for (let j = 0; j < nearbyEmployees.length; j++) {
-          if (assigned.has(j)) {
-            continue;
-          }
+          if (assigned.has(j)) continue;
 
           const candidate = nearbyEmployees[j];
 
@@ -262,26 +249,18 @@ app.get("/api/spatial-audit", (req, res) => {
       success: true,
       dataSource: "Live Socket.IO virtual-office positions",
       coordinateSystem: "Virtual office pixels (x, y)",
-
-      searchCenter: {
-        x,
-        y,
-      },
-
+      searchCenter: { x, y },
       radiusPixels: radius,
       clusterDistancePixels: CLUSTER_DISTANCE_PIXELS,
-
       totalConnectedEmployees: liveEmployees.length,
       nearbyCount: nearbyEmployees.length,
       nearbyEmployees,
-
       clusterCount: clusters.length,
       clusters: clusters.map((cluster, index) => ({
         clusterId: index + 1,
         employeeCount: cluster.length,
         employees: cluster,
       })),
-
       performance: {
         queryTimeMs,
         totalProcessingMs,
@@ -308,16 +287,12 @@ app.get("/api/spatial-audit", (req, res) => {
 function broadcastEmployeeState() {
   const employeeList = Array.from(employees.values());
 
-  // Update all connected office clients.
   io.emit("employeesUpdate", employeeList);
 
-  // Update proximity information for each client.
   for (const socket of io.sockets.sockets.values()) {
     const currentEmployee = employees.get(socket.id);
 
-    if (!currentEmployee) {
-      continue;
-    }
+    if (!currentEmployee) continue;
 
     const nearbyEmployees = employeeList
       .filter((employee) => employee.socketId !== socket.id)
@@ -356,7 +331,6 @@ io.on("connection", (socket) => {
       ? auth.name.trim()
       : "Guest";
 
-  // Each connection starts at the office centre.
   const employee = {
     socketId: socket.id,
     userId,
@@ -371,13 +345,14 @@ io.on("connection", (socket) => {
 
   broadcastEmployeeState();
 
-  // Update the employee's live position.
+  // ========================================
+  // EMPLOYEE MOVEMENT
+  // ========================================
+
   socket.on("employeeMove", (movement) => {
     const currentEmployee = employees.get(socket.id);
 
-    if (!currentEmployee || !movement) {
-      return;
-    }
+    if (!currentEmployee || !movement) return;
 
     const nextX = Number(movement.x);
     const nextY = Number(movement.y);
@@ -401,7 +376,35 @@ io.on("connection", (socket) => {
     broadcastEmployeeState();
   });
 
-  // Remove disconnected sessions from the live audit.
+  // ========================================
+  // WEBRTC VOICE SIGNALING
+  // Forwards offers, answers, and ICE candidates.
+  // Audio itself travels peer-to-peer.
+  // ========================================
+
+  socket.on("voiceSignal", (payload = {}) => {
+    const { targetSocketId, signal } = payload;
+
+    if (
+      typeof targetSocketId !== "string" ||
+      !signal ||
+      targetSocketId === socket.id ||
+      !employees.has(targetSocketId)
+    ) {
+      return;
+    }
+
+    // Only relay signaling messages, not audio streams.
+    io.to(targetSocketId).emit("voiceSignal", {
+      fromSocketId: socket.id,
+      signal,
+    });
+  });
+
+  // ========================================
+  // DISCONNECT CLEANUP
+  // ========================================
+
   socket.on("disconnect", () => {
     const disconnectedEmployee = employees.get(socket.id);
 
@@ -431,7 +434,6 @@ async function startServer() {
 
     console.log("MongoDB Atlas connected successfully!");
 
-    // Remove old location/geospatial indexes.
     const indexes = await UserLocation.collection.indexes();
 
     for (const index of indexes) {
@@ -445,7 +447,6 @@ async function startServer() {
       }
     }
 
-    // Retain the unique userId index for database demo records.
     await UserLocation.collection.createIndex(
       { userId: 1 },
       { unique: true }
@@ -464,6 +465,7 @@ async function startServer() {
 
       console.log(`Voice range: ${VOICE_RANGE} pixels`);
       console.log("Spatial audit source: live connected employees");
+      console.log("WebRTC signaling: enabled");
     });
   } catch (error) {
     console.error("Server startup failed:", error);
